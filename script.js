@@ -50,11 +50,6 @@
             this.difficult = difficult;
         }
 
-        get maxWorker() {
-            if(this.type === 'web') return this.difficult;
-            return 1;
-        }
-
         getDays(workersAmount) {
             return this.difficult / workersAmount;
         }
@@ -66,12 +61,19 @@
             this.needAccept = [];
 
             this.projects = [];
+            this.distributedProjects = [];
 
             this.developers = new Developers();
         }
 
         giveProjects(projects) {
             this.projects = this.projects.concat(projects);
+
+            if(this.developers.busyDevelopers().length) {
+                for(let devs in this.developers.busyDevelopers()) {
+                    this.developers.busyDevelopers[devs].forEach((i) => i.recalculateDays);
+                }
+            }   
 
             if(this.needAccept.length) {
                 this.needAccept.forEach((worker, i) => this.developers.acceptWorker(this.needAccept[i]));
@@ -91,7 +93,7 @@
                 if(!this.developers.takeProject(this.projects[i])) {
                     this.needAccept.push(this.projects[i].type);
                 } else {
-                    this.projects.splice(i, 1);
+                    this.distributedProjects.push(this.projects.splice(i, 1));
                     --i;    
                 }
 
@@ -113,6 +115,16 @@
             return this[type + 'Developers'].filter( worker => worker.free );
         }
 
+        busyDevelopers(type) {
+            if(!type) return {
+                webDevelopers: this.webDevelopers.filter(worker => !worker.free ),
+                mobileDevelopers: this.mobileDevelopers.filter(worker => !worker.free ),
+                qaDevelopers: this.qaDevelopers.filter(worker => !worker.free)
+            }
+
+            return this[type + 'Developers'].filter(worker => !worker.free );
+        }
+
         acceptWorker(workerType) {
             switch(workerType) {
                 case 'web': 
@@ -130,17 +142,44 @@
         takeProject(project) {
             let projectType = project.type;
 
-            if(!this.freeDevelopers(projectType).length) return false;
+            let developers = this.freeDevelopers(projectType);
 
-            return true;
-            // Код принятия проекта
+            if(!developers.length) return false;
+
+            if(projectType === 'web') {
+                developers[0].giveProject(project, project.getDays(1));
+            }
+
+            if(projectType === 'mobile') {
+                let developersAmount = Math.min(project.difficult, developers.length);
+                
+                for(let i = 0; i < developersAmount; i++) {
+                    developers[i].giveProject(project, project.getDays(developersAmount));
+                }
+            }
+
+            return true;  
         }
     }
 
     class Developer {
 
         constructor() {
-            this.free = true;
+            this.daysWork = 0;
+            this.project = {};
+        }
+
+        giveProject(project, days) {
+            this.daysWork += days;
+            this.project = project;
+        }
+
+        get free() {
+            return this.daysWork <  1;
+        }
+
+        recalculateDays() {
+            this.daysWork--
         }
 
     }
