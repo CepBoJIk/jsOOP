@@ -7,17 +7,22 @@
         constructor(daysAmount) {
 
             this.director = new Director();
+            this.logs = new Log();
 
             while( daysAmount > 0 ) {
 
-                this.director.changeDay();
+                let log = this.director.changeDay();
+                log.day = ++this.logs.days;
+                console.log(log.printLog());
+
+                this.logs.addLog(log);
+
                 daysAmount--;
 
             }
 
-            this.director.logs.getFullLog();
-            console.log(this.director.logs.printFullLog());
-
+            this.logs.getFullLog();
+            console.log(this.logs.printFullLog())
         }
     }
 
@@ -26,81 +31,100 @@
         constructor() {
             this.projects = [];
             this.needAccept = [];
-            // this.newProjects = [];
-            // this.finishedProjectsAtDay = [];
-            // this.newDevelopers = [];
-            // this.dismissedDeveloper = {};
             this.webDepartament = new WebDepartament();
             this.mobileDepartament = new MobileDepartament();
             this.qaDepartament = new QaDepartament();
-            this.logs = new Log();
-            this.day = 0;  /* Надо ли? */
-            // this.dismissDevelopersInterval = 3;
         }
 
         changeDay() {
-            this.deleteFinishedProjects();
+            let logConfig = {   /* config = { finishedProjects, acceptedProjects, dismissedDevelopers, acceptedDeveloper } */
+                finishedProjects: null,
+                acceptedProjects: null,
+                dismissedDeveloper: null,
+                acceptedDevelopers: null
+            }
 
-            this.hireDevelopers();
+            logConfig.acceptedDevelopers = this.hireDevelopers();
 
-            this.getProjects();
+            logConfig.acceptedProjects = this.getProjects(); /* Ошибка в логе */
 
             this.distributeProjects(); 
 
-            this.dismissFreeDeveloper();
+            logConfig.dismissedDeveloper = this.dismissFreeDeveloper();
 
-            this.developers.recalculateDay();
+            this.recalculateDevelopersDay();
 
-            this.updateLog();
+            logConfig.finishedProjects = this.deleteFinishedProjects(); /* Ошибка в функции */
+
+            return new LogItem(logConfig);
         }
 
         getProjects() { 
-            let projects = [];
             let projectsAmount = getRandom(0, 5);
+            let acceptedProjects = [];
 
             while(projectsAmount-- > 0) {
                 let project = Project.generateRandomProject();
 
-                projects.push(project);
+                this.projects.push(project);
+                acceptedProjects.push(project)
             }
 
-            this.projects.push(projects);
+            return acceptedProjects;
         }
 
         hireDevelopers() {
+            let newDevelopers = [];
+
             if(this.needAccept.length) {
                 this.needAccept.forEach((developerClass) => {
                     let newDeveloper = new developerClass();
                     let departament = this.identifyDepartament(newDeveloper);
 
                     departament.acceptWorker(newDeveloper);
+                    newDevelopers.push(newDeveloper);
                 });
-
                 this.needAccept = [];
             }
+
+            return newDevelopers;
         }
 
         distributeProjects() {
-            let newProjects = this.projects.filter(p => p.new);
+            if(!this.projects.length) return;
+            let projects = this.projects.filter(p => p.process.ACCEPTED);
+            let testedProjects = this.projects.filter(p => p.process.TESTED);
 
-            newProjects.forEach(project => {
-
-                // Полученные проекты директор пытается передать в отделы учитывая их специализацию
-
-            })
-
-            // for(let i = 0; i < acceptedProjects.length; i++) {
-
-            //     if(acceptedProjects[i].getProcess('TESTED')) {
-            //         acceptedProjects[i].type = 'qa';
-            //     } 
-            //     if(!this.developers.takeProject(acceptedProjects[i])) {
-            //         this.needAccept.push(acceptedProjects[i].type);
-            //     } else {
-            //         acceptedProjects[i].setProcess('DISTRIBUTED');
-            //     }
-            // }
+            if(projects.length) {
+                projects.forEach(project => {
+                    let departament = this.identifyDepartament(project);
                     
+                    let canTake = departament.takeProject(project);
+
+                    if( !canTake ) {
+                        let developerClass = null;
+
+                        if(project instanceof WebProject) {
+                            developerClass = WebDeveloper;
+                        } else {
+                            developerClass = MobileDeveloper;
+                        }
+                        if( developerClass ) {
+                            this.needAccept.push(developerClass);
+                        }
+                    }
+                }) 
+            }
+
+            if(testedProjects.length) {
+                testedProjects.forEach(project => {
+                    let canTake = this.qaDepartament.takeProject(project);
+
+                    if( !canTake ) {
+                        this.needAccept.push(QaDeveloper);
+                    }
+                })
+            }        
         }
 
         dismissFreeDeveloper() {
@@ -116,13 +140,17 @@
             
             if(index != -1) {
                 departament.developers.splice(index, 1);
+
+                return dismissed;
             }
+
+            return false;
         };
 
         searchDismissedDeveloper() {
-            let dismissWebDevelopers = this.webDepartament.dismissDevelopers();
-            let dismissMobileDevelopers = this.mobileDepartament.dismissDevelopers();
-            let dismissQaDevelopers = this.qaDepartament.dismissDevelopers();
+            let dismissWebDevelopers = this.webDepartament.getDismissList();
+            let dismissMobileDevelopers = this.mobileDepartament.getDismissList();
+            let dismissQaDevelopers = this.qaDepartament.getDismissList();
 
             let dismiss = [].concat(dismissWebDevelopers, dismissMobileDevelopers, dismissQaDevelopers);
 
@@ -133,18 +161,18 @@
             return dismiss[0];
         }
 
-        identifyDepartament(developer) {
+        identifyDepartament( obj ) {
             let departament = null;
 
-            if( developer instanceof WebDeveloper) {
-                departament = this.webDepartament;                
+            if( obj instanceof WebDeveloper || obj instanceof WebProject) {
+                departament = this.webDepartament;            
             }
 
-            if( developer instanceof MobileDeveloper ) {
+            if( obj instanceof MobileDeveloper || obj instanceof MobileProject) {
                 departament = this.mobileDepartament;
             }
 
-            if( developer instanceof QaDeveloper ) {
+            if( obj instanceof QaDeveloper ) {
                 departament = this.qaDepartament;
             }
 
@@ -154,27 +182,24 @@
         deleteFinishedProjects() {
             let finishedProjects = this.projects.filter((p) => p.finished);
 
+            if(!finishedProjects.length) return false;
+
             finishedProjects.forEach(project => {
                 let index = this.projects.indexOf(project);
 
-                if(index != -1) this.projects.splice(index, 1);
+                if(index != -1) {
+                    this.projects.splice(index, 1);
+                }
             })
+
+            return finishedProjects;
         }
 
-        updateLog() {
-            
-            let log = new LogItem(this.day, this.finishedProjectsAtDay, this.newProjects, this.dismissedDevelopers);
-            log.day = this.day;
-            log.finishedProjects = this.finishedProjectsAtDay;
-            log.acceptedProjects = this.newProjects;
-            log.dismissedDevelopers = this.dismissedDeveloper;
-            log.acceptedDevelopers = this.newDevelopers;
-                      
-            this.logs.addLog(log);
-
-            console.log(log.printLog());
+        recalculateDevelopersDay() {
+            this.webDepartament.recalculateDay();
+            this.mobileDepartament.recalculateDay();
+            this.qaDepartament.recalculateDay();
         }
-
     }
 
     class Departament {
@@ -195,22 +220,6 @@
             this.developers.push(worker);
         }
 
-        takeProject(project) {
-            // let freeDevelopers = this.freeDevelopers();
-
-            // if(!freeDevelopers.length) return false;
-
-            // freeDevelopers[0].toDoWork(project, project.getDays(1));
-
-            // let amountDevelopers = Math.min(freeDevelopers.length, project.difficult);
-
-            // for(let i = 0; i < amountDevelopers; i++) {
-            //     freeDevelopers[i].toDoWork(project, project.getDays(amountDevelopers));
-            // }
-
-            // return true;
-        }
-
         recalculateDay() {
             let busyDevelopers = this.busyDevelopers();
             busyDevelopers.forEach(dev => dev.recalculateDaysWork());
@@ -219,7 +228,7 @@
             freeDevelopers.forEach(dev => dev.freeDays++);
         }
 
-        dismissDevelopers() {
+        getDismissList() {
             return this.freeDevelopers().filter(dev => dev.freeDays > dismissDevelopersInterval);
         }
 
@@ -234,9 +243,11 @@
         takeProject(project) {
             let freeDevelopers = this.freeDevelopers();
 
-            if(!freeDevelopers) return false;
+            if(!freeDevelopers.length) return false;
 
             freeDevelopers[0].toDoWork(project, project.getDays(1));
+
+            project.setProcess('DISTRIBUTED');
 
             return true;
         }
@@ -254,7 +265,7 @@
             let difficult = project.difficult;
             let workersAmount = 1;
 
-            if(!freeDevelopers) return false;
+            if(!freeDevelopers.length) return false;
 
             if(freeDevelopers.length >= difficult) {
                 workersAmount = difficult;
@@ -262,7 +273,7 @@
 
             let workers = freeDevelopers.filter((item, index) => index < workersAmount);
             workers.forEach(dev => {
-                dev.toDoWork(project, project.getDay(workersAmount));
+                dev.toDoWork(project, project.getDays(workersAmount));
             })
 
             return true;
@@ -279,17 +290,16 @@
         takeProject(project) {
             let freeDevelopers = this.freeDevelopers();
 
-            if(!freeDevelopers) return false;
+            if(!freeDevelopers.length) return false;
 
             freeDevelopers[0].toDoWork(project, 1);
         }
     }
 
     class Developer {
-        constructor(type) {
-            this.type = type;
+        constructor() {
             this.daysWork = 0;
-            this.project = {};
+            this.project = null;
             this.projectsAmount = 0;
             this.freeDays = 0;
         }
@@ -320,8 +330,8 @@
 
     class WebDeveloper extends Developer {
 
-        constructor(type) {
-            super(type);
+        constructor() {
+            super();
 
         }
 
@@ -329,8 +339,8 @@
 
     class MobileDeveloper extends Developer {
 
-        constructor(type) {
-            super(type);
+        constructor() {
+            super();
 
         }
 
@@ -338,8 +348,8 @@
 
     class QaDeveloper extends Developer {
 
-        constructor(type) {
-            super(type);
+        constructor() {
+            super();
 
         }
 
@@ -348,7 +358,7 @@
 
             if(this.free) {
                 this.project.setProcess('FINISHED');
-                this.project = {};
+                this.project = null;
             }
         }
 
@@ -356,16 +366,14 @@
 
     class Project {
 
-        constructor(/*type,*/ difficult) {
+        constructor(difficult) {
             this.process = {
                 'ACCEPTED': true,
                 'DISTRIBUTED': false,
                 'TESTED': false,
                 'FINISHED': false
             }
-            // this.type = type;
             this.difficult = difficult;
-            this.new = true;
         }
 
         get finished() {
@@ -374,10 +382,6 @@
 
         getDays(workersAmount) {
             return this.difficult / workersAmount;
-        }
-
-        getProcess(process) {
-            return this.process[process];
         }
 
         setProcess(process) {
@@ -415,33 +419,6 @@
         
     }
 
-    class LogItem {
-        constructor() {
-            this.day;
-            this.finishedProjects;
-            this.acceptedProjects;
-            this.dismissedDevelopers;
-            this.acceptedDevelopers;
-        }
-
-        get dismissed() {
-            if(this.dismissedDevelopers) {
-                return this.dismissedDevelopers.type;
-            }
-            return 'Не стал увольнять, у него жена, дети...';
-        }
-
-        getAcceptedDevelopersForType(type) {
-            return this.acceptedDevelopers.filter(dev => dev === type);
-        }
-
-        printLog() {
-            return `День ${this.day}, принято проектов ${this.acceptedProjects.length}, завершено проектов ${this.finishedProjects.length}, 
-            принято рабочих ${this.acceptedDevelopers.length}, из них: webDevelopers - ${this.getAcceptedDevelopersForType('web').length}, mobileDevelopers - ${this.getAcceptedDevelopersForType('mobile').length}, qaDevelopers - ${this.getAcceptedDevelopersForType('qa').length}
-            уволен рабочий: ${this.dismissed}`
-        }
-    }
-
     class Log {
         constructor() {
             this.logs = [];
@@ -457,29 +434,71 @@
         }
 
         getFullLog() {
-            this.days = this.logs.length;
+            let logs = this.logs;
 
-            this.getAllProperties('finishedProjects');
-            this.getAllProperties('acceptedProjects');
+            logs.forEach(log => {
+                let finishedProjects = log.finishedProjects || [];
+                let acceptedProjects = log.acceptedProjects || [];
+                let acceptedDevelopers = log.acceptedDevelopers || [];
 
-            this.logs.forEach(log => {
-                if(log.dismissedDevelopers) {
-                    this.dismissedDevelopers.push(log.dismissedDevelopers)
+                let dismissedDeveloper = log.dismissedDeveloper;
+
+                this.getAllProperties(finishedProjects, this.finishedProjects);
+                this.getAllProperties(acceptedProjects, this.acceptedProjects);
+                this.getAllProperties(acceptedDevelopers, this.acceptedDevelopers);
+
+                if(dismissedDeveloper) {
+                    this.dismissedDevelopers.push(dismissedDeveloper);
                 }
-            });
-
-            this.getAllProperties('acceptedDevelopers');
-
+            });  
         }
 
-        getAllProperties(property) {
-            this.logs.forEach(log => log[property].forEach(p => this[property].push(p)));
+        getAllProperties(array, log) {
+            array.forEach(obj => {
+                log.push(obj)
+            })
         }
 
         printFullLog() {
             return `-------------------------------------------
             Всего: дней: ${this.days}, принято проектов ${this.acceptedProjects.length}, завершено проектов ${this.finishedProjects.length},
             уволено рабочих ${this.dismissedDevelopers.length}, принято рабочих ${this.acceptedDevelopers.length} `
+        }
+    }
+
+    class LogItem {
+        constructor(config) { /* config = { finishedProjects, acceptedProjects, dismissedDevelopers, acceptedDeveloper } */
+            this.day = null;
+            this.finishedProjects = config.finishedProjects || [];
+            this.acceptedProjects = config.acceptedProjects || [];
+            this.dismissedDeveloper = config.dismissedDeveloper;
+            this.acceptedDevelopers = config.acceptedDevelopers || [];
+        }
+
+        get dismissedType() {
+            if(this.dismissedDeveloper) {
+
+                if( this.dismissedDeveloper instanceof WebDeveloper ) {
+                    return 'Web developer';
+                }
+                if( this.dismissedDeveloper instanceof MobileDeveloper ) {
+                    return 'Mobile developer';
+                }
+                if( this.dismissedDeveloper instanceof QaDeveloper ) {
+                    return 'Qa developer'
+                }
+            }
+            return 'Не стал увольнять, у него жена, дети...';
+        }
+
+        getAcceptedDevelopersForType(devClass) {
+            return this.acceptedDevelopers.filter(dev => dev instanceof devClass);
+        }
+
+        printLog() {
+            return `День ${this.day}, принято проектов ${this.acceptedProjects.length}, завершено проектов ${this.finishedProjects.length}, 
+            принято рабочих ${this.acceptedDevelopers.length}, из них: webDevelopers - ${this.getAcceptedDevelopersForType(WebDeveloper).length}, mobileDevelopers - ${this.getAcceptedDevelopersForType(MobileDeveloper).length}, qaDevelopers - ${this.getAcceptedDevelopersForType(QaDeveloper).length}
+            уволен рабочий: ${this.dismissedType}`
         }
     }
 
@@ -493,6 +512,6 @@
         return Math.floor(Math.random() * (max - min)) + min;
     }
 
-    new WebCompany(10);
+    new WebCompany(100);
 
 })()
