@@ -22,7 +22,7 @@
             }
 
             this.logs.getFullLog();
-            console.log(this.logs.printFullLog())
+            console.log(this.logs + '');
         }
     }
 
@@ -46,7 +46,7 @@
 
             logConfig.acceptedDevelopers = this.hireDevelopers();
 
-            logConfig.acceptedProjects = this.getProjects(); /* Ошибка в логе */
+            logConfig.acceptedProjects = this.getProjects();
 
             this.distributeProjects(); 
 
@@ -54,7 +54,7 @@
 
             this.recalculateDevelopersDay();
 
-            logConfig.finishedProjects = this.deleteFinishedProjects(); /* Ошибка в функции */
+            logConfig.finishedProjects = this.deleteFinishedProjects(); 
 
             return new LogItem(logConfig);
         }
@@ -79,9 +79,13 @@
             if(this.needAccept.length) {
                 this.needAccept.forEach((developerClass) => {
                     let newDeveloper = new developerClass();
-                    let departament = this.identifyDepartament(newDeveloper);
 
-                    departament.acceptWorker(newDeveloper);
+                    let isAccept = this.departamentsArray.some((dep => {
+                        return dep.acceptWorker(newDeveloper);
+                    }));
+
+                    if(!isAccept) throw new Error('принят работник неизвестного типа');
+
                     newDevelopers.push(newDeveloper);
                 });
                 this.needAccept = [];
@@ -92,39 +96,35 @@
 
         distributeProjects() {
             if(!this.projects.length) return;
-            let projects = this.projects.filter(p => p.process.ACCEPTED);
-            let testedProjects = this.projects.filter(p => p.process.TESTED);
 
-            if(projects.length) {
-                projects.forEach(project => {
-                    let departament = this.identifyDepartament(project);
-                    
-                    let canTake = departament.takeProject(project);
+            let projects = this.projects.filter(p => {
+                return p.process.ACCEPTED || p.process.TESTED;
+            });
 
-                    if( !canTake ) {
-                        let developerClass = null;
-
-                        if(project instanceof WebProject) {
-                            developerClass = WebDeveloper;
-                        } else {
-                            developerClass = MobileDeveloper;
-                        }
-                        if( developerClass ) {
-                            this.needAccept.push(developerClass);
-                        }
-                    }
-                }) 
-            }
-
-            if(testedProjects.length) {
-                testedProjects.forEach(project => {
-                    let canTake = this.qaDepartament.takeProject(project);
-
-                    if( !canTake ) {
-                        this.needAccept.push(QaDeveloper);
-                    }
+            projects.forEach(project => {
+                
+                let isAccept = this.departamentsArray.some((dep) => {
+                    return dep.takeProject(project);
                 })
-            }        
+
+                if( !isAccept ) {
+                    let developerClass = null;
+
+                    if(project instanceof WebProject && !project.process.TESTED) {
+                        developerClass = WebDeveloper;
+                    } else if(project instanceof MobileProject && !project.process.TESTED) {
+                        developerClass = MobileDeveloper;
+                    } else if(project.process.TESTED) {
+                        developerClass = QaDeveloper;
+                    }
+
+                    if( developerClass ) {
+                        this.needAccept.push(developerClass);
+                    } else {
+                        throw new Error('Неизвестный тип проекта');
+                    }
+                }
+            })       
         }
 
         dismissFreeDeveloper() {
@@ -132,7 +132,7 @@
 
             if( !dismissed ) return false;
 
-            let departament = this.identifyDepartament(dismissed);
+            let departament = this.identifyDepartament(dismissed); /* dismissed.identifyDepartament */
 
             if(!departament) return false;
 
@@ -200,6 +200,14 @@
             this.mobileDepartament.recalculateDay();
             this.qaDepartament.recalculateDay();
         }
+
+        get departamentsArray() {
+            let departamentsArray = [];
+
+            departamentsArray.push(this.webDepartament, this.mobileDepartament, this.qaDepartament);
+
+            return departamentsArray;
+        }
     }
 
     class Departament {
@@ -217,7 +225,11 @@
         }
 
         acceptWorker(worker) {
+            if(!this.canTakeWorker(worker)) return false;
+
             this.developers.push(worker);
+
+            return true;
         }
 
         recalculateDay() {
@@ -243,13 +255,21 @@
         takeProject(project) {
             let freeDevelopers = this.freeDevelopers();
 
-            if(!freeDevelopers.length) return false;
+            if(!freeDevelopers.length || !this.canTakeProject(project)) return false;
 
             freeDevelopers[0].toDoWork(project, project.getDays(1));
 
             project.setProcess('DISTRIBUTED');
 
             return true;
+        }
+
+        canTakeWorker(worker) {
+            return worker instanceof WebDeveloper;
+        }
+
+        canTakeProject(project) {
+            return project instanceof WebProject && !project.process.TESTED;
         }
 
     }
@@ -265,20 +285,29 @@
             let difficult = project.difficult;
             let workersAmount = 1;
 
-            if(!freeDevelopers.length) return false;
+            if(!freeDevelopers.length || !this.canTakeProject(project)) return false;
 
             if(freeDevelopers.length >= difficult) {
                 workersAmount = difficult;
             }
 
-            let workers = freeDevelopers.filter((item, index) => index < workersAmount);
-            workers.forEach(dev => {
+            let developersAmount = workersAmount;
+
+            while(developersAmount--) {
+                let dev = freeDevelopers.shift();
                 dev.toDoWork(project, project.getDays(workersAmount));
-            })
+            }
 
             return true;
         }
 
+        canTakeWorker(worker) {
+            return worker instanceof MobileDeveloper;
+        }
+
+        canTakeProject(project) {
+            return project instanceof MobileProject && !project.process.TESTED;
+        }
     }
 
     class QaDepartament extends Departament {
@@ -290,9 +319,19 @@
         takeProject(project) {
             let freeDevelopers = this.freeDevelopers();
 
-            if(!freeDevelopers.length) return false;
+            if(!freeDevelopers.length || !this.canTakeProject(project)) return false;
 
             freeDevelopers[0].toDoWork(project, 1);
+
+            return true;
+        }
+
+        canTakeWorker(worker) {
+            return worker instanceof QaDeveloper;
+        }
+
+        canTakeProject(project) {
+            return project.process.TESTED;
         }
     }
 
@@ -318,6 +357,8 @@
             this.daysWork--;
 
             if(this.free) {
+                if(!this.project) return;
+
                 this.project.setProcess('TESTED');
                 this.project = {};
                 this.projectsAmount++;
@@ -334,7 +375,6 @@
             super();
 
         }
-
     }
 
     class MobileDeveloper extends Developer {
@@ -343,7 +383,6 @@
             super();
 
         }
-
     }
 
     class QaDeveloper extends Developer {
@@ -357,6 +396,7 @@
             this.daysWork--;
 
             if(this.free) {
+                if(!this.project) return;
                 this.project.setProcess('FINISHED');
                 this.project = null;
             }
@@ -381,7 +421,10 @@
         }
 
         getDays(workersAmount) {
-            return this.difficult / workersAmount;
+            let days = this.difficult / workersAmount
+            if(!isInteger(days)) throw new Error('Не целое число');
+
+            return days;
         }
 
         setProcess(process) {
@@ -408,7 +451,6 @@
         constructor(difficult) {
             super(difficult);
         }
-
     }
 
     class MobileProject extends Project {
@@ -459,11 +501,11 @@
             })
         }
 
-        printFullLog() {
-            return `-------------------------------------------
-            Всего: дней: ${this.days}, принято проектов ${this.acceptedProjects.length}, завершено проектов ${this.finishedProjects.length},
-            уволено рабочих ${this.dismissedDevelopers.length}, принято рабочих ${this.acceptedDevelopers.length} `
-        }
+         toString() {
+             return `-------------------------------------------
+             Всего: дней: ${this.days}, принято проектов ${this.acceptedProjects.length}, завершено проектов ${this.finishedProjects.length},
+             уволено рабочих ${this.dismissedDevelopers.length}, принято рабочих ${this.acceptedDevelopers.length} `
+         }
     }
 
     class LogItem {
@@ -507,6 +549,10 @@
     const projectClasses = [ WebProject, MobileProject ];
 
     const dismissDevelopersInterval = 3;
+
+    const isInteger = function(num) {
+        return (num ^ 0) === num;
+    }
     
     function getRandom(min, max) {
         return Math.floor(Math.random() * (max - min)) + min;
