@@ -1,6 +1,6 @@
 const maxDifficult = 3;
 const dismissDevelopersInterval = 3;
-const isInteger = function isInteger(num) {
+function isInteger(num) {
   return (num - Math.floor(num)) === 0;
 };
 const getRandom = function getRandom(min, max) {
@@ -20,6 +20,7 @@ class Developer {
   }
 
   toDoWork(project, days) {
+    project.setProcess('DISTRIBUTED');
     this.project = project;
     this.daysWork = days;
     this.freeDays = 0;
@@ -140,13 +141,10 @@ class WebDepartament extends Departament {
   }
 
   takeProject(project) {
+    if (!this.canTakeProject(project)) return false;
     const freeDevelopers = this.freeDevelopers();
 
-    if (!freeDevelopers.length || !this.canTakeProject(project)) return false;
-
     freeDevelopers[0].toDoWork(project, project.getDays(1));
-
-    project.setProcess('DISTRIBUTED');
 
     return true;
   }
@@ -156,7 +154,7 @@ class WebDepartament extends Departament {
   }
 
   canTakeProject(project) {
-    return project instanceof this.projectsType && !project.process.TESTED;
+    return this.freeDevelopers().length && project instanceof this.projectsType && !project.process.TESTED;
   }
 }
 
@@ -172,7 +170,7 @@ class MobileDepartament extends Departament {
     const { difficult } = project;
     let workersAmount = 1;
 
-    if (!freeDevelopers.length || !this.canTakeProject(project)) return false;
+    if (!this.canTakeProject(project)) return false;
 
     if (freeDevelopers.length >= difficult) {
       workersAmount = difficult;
@@ -194,7 +192,7 @@ class MobileDepartament extends Departament {
   }
 
   canTakeProject(project) {
-    return project instanceof this.projectsType && !project.process.TESTED;
+    return this.freeDevelopers().length && project instanceof this.projectsType && !project.process.TESTED;
   }
 }
 
@@ -206,10 +204,11 @@ class QaDepartament extends Departament {
 
   takeProject(project) {
     const freeDevelopers = this.freeDevelopers();
+    const developersAmount = 1; //QaDeveloper working on project alone
 
-    if (!freeDevelopers.length || !this.canTakeProject(project)) return false;
+    if (!this.canTakeProject(project)) return false;
 
-    freeDevelopers[0].toDoWork(project, 1);
+    freeDevelopers[0].toDoWork(project, developersAmount);
 
     return true;
   }
@@ -219,8 +218,7 @@ class QaDepartament extends Departament {
   }
 
   canTakeProject(project) {
-    if (!project.process.TESTED) return false;
-    return this;
+    return project.process.TESTED && this.freeDevelopers().length;
   }
 }
 
@@ -284,10 +282,7 @@ class Log {
     const { logs } = this;
 
     logs.forEach((log) => {
-      const { finishedProjects = [] } = log;
-      const { acceptedProjects = [] } = log;
-      const { acceptedDevelopers = [] } = log;
-      const { dismissedDeveloper } = log;
+      const { finishedProjects = [], acceptedProjects = [], acceptedDevelopers = [], dismissedDeveloper } = log;
 
       this.getAllProperties(finishedProjects, this.finishedProjects);
       this.getAllProperties(acceptedProjects, this.acceptedProjects);
@@ -480,11 +475,7 @@ class Director {
   }
 
   get departamentsArray() {
-    const departamentsArray = [];
-
-    departamentsArray.push(this.webDepartament, this.mobileDepartament, this.qaDepartament);
-
-    return departamentsArray;
+    return [this.webDepartament, this.mobileDepartament, this.qaDepartament]
   }
 }
 
