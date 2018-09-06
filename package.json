@@ -1,0 +1,25 @@
+{
+  "name": "jsoop",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.html",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "./node_modules/.bin/eslint script.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CepBoJIk/jsOOP.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/CepBoJIk/jsOOP/issues"
+  },
+  "homepage": "https://github.com/CepBoJIk/jsOOP#readme",
+  "devDependencies": {
+    "eslint": "^5.4.0",
+    "eslint-config-airbnb-base": "^13.1.0",
+    "eslint-plugin-import": "^2.14.0"
+  }
+}
